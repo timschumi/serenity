@@ -208,18 +208,17 @@ public:
     template<Unsigned T = u64>
     ErrorOr<T> peek_bits(size_t count)
     {
-        if (count > m_bit_count)
-            TRY(refill_buffer_from_stream());
+        while (count > m_bit_count) {
+            if (!TRY(refill_buffer_from_stream()))
+                return Error::from_error_payload(StreamError(StreamErrorCode::NotEnoughData));
+        }
 
-        return m_bit_buffer & lsb_mask<T>(min(count, m_bit_count));
+        return m_bit_buffer & lsb_mask<T>(count);
     }
 
     ALWAYS_INLINE void discard_previously_peeked_bits(u8 count)
     {
-        // We allow "retrieving" more bits than we can provide, but we need to make sure that we don't underflow the current bit counter.
-        if (count > m_bit_count)
-            count = m_bit_count;
-
+        VERIFY(count <= m_bit_count);
         m_bit_buffer >>= count;
         m_bit_count -= count;
     }
@@ -239,8 +238,11 @@ public:
     }
 
 private:
-    ErrorOr<void> refill_buffer_from_stream()
+    ErrorOr<bool> refill_buffer_from_stream()
     {
+        if (m_stream->is_eof())
+            return false;
+
         size_t bits_to_read = bit_buffer_size - m_bit_count;
         size_t bytes_to_read = bits_to_read / bits_per_byte;
 
@@ -250,7 +252,7 @@ private:
         m_bit_buffer |= (buffer << m_bit_count);
         m_bit_count += bytes.size() * bits_per_byte;
 
-        return {};
+        return true;
     }
 };
 
