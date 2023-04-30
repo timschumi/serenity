@@ -217,6 +217,7 @@ using MergeAndDeduplicatePacks = InheritFromPacks<MakeIndexSequence<sizeof...(Ps
 namespace AK {
 
 struct Empty {
+    bool operator==(Empty const&) const { return true; }
 };
 
 template<typename T>
