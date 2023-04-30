@@ -19,12 +19,41 @@
 
 namespace AK {
 
+class ErrorPayload {
+public:
+    ErrorPayload(uintptr_t stored_value)
+        : m_storage(stored_value)
+    {
+    }
+
+    virtual ErrorOr<void> format(Formatter<FormatString>& formatter, FormatBuilder& builder) const = 0;
+    virtual bool operator==(ErrorPayload const&) const = 0;
+
+    virtual ~ErrorPayload() = default;
+
+protected:
+    uintptr_t m_storage;
+};
+
 class Error {
 public:
+    using RawErrorPayload = Array<u8, sizeof(ErrorPayload)>;
+
     ALWAYS_INLINE Error(Error&&) = default;
     ALWAYS_INLINE Error& operator=(Error&&) = default;
 
     [[nodiscard]] static Error from_errno(int code) { return Error(code); }
+
+    template<typename T>
+    requires(IsBaseOf<ErrorPayload, T> && requires { sizeof(ErrorPayload) == sizeof(T); })
+    [[nodiscard]] static Error from_error_payload(T const& error_payload)
+    {
+        // We made sure that the type we are given inherits from CustomErrorBase and that it doesn't exceed the size of CustomErrorBase.
+        // Therefore, we should be able to store it in the Variant without risking slicing off bits.
+        RawErrorPayload raw_error_payload;
+        new (raw_error_payload.data()) T(error_payload);
+        return Error(raw_error_payload);
+    }
 
     // NOTE: For calling this method from within kernel code, we will simply print
     // the error message and return the errno code.
@@ -90,6 +119,22 @@ public:
     {
         return m_code.has<int>();
     }
+
+    template<typename T>
+    Optional<T const&> error_payload() const
+    {
+        if (!m_code.has<RawErrorPayload>())
+            return {};
+
+        auto const* custom_error_base = reinterpret_cast<ErrorPayload const*>(m_code.get<RawErrorPayload>().data());
+        auto const* custom_error = dynamic_cast<T const*>(custom_error_base);
+
+        if (!custom_error)
+            return {};
+
+        return *custom_error;
+    }
+
 #ifndef KERNEL
     bool is_syscall() const
     {
@@ -104,6 +149,11 @@ public:
 protected:
     Error(int code)
         : m_code(code)
+    {
+    }
+
+    Error(RawErrorPayload raw_custom_error)
+        : m_code(raw_custom_error)
     {
     }
 
@@ -129,7 +179,7 @@ private:
     StringView m_string_literal;
 #endif
 
-    Variant<Empty, int> m_code { Empty {} };
+    Variant<Empty, int, RawErrorPayload> m_code { Empty {} };
 
 #ifndef KERNEL
     bool m_syscall { false };
@@ -215,4 +265,5 @@ public:
 #if USING_AK_GLOBALLY
 using AK::Error;
 using AK::ErrorOr;
+using AK::ErrorPayload;
 #endif
