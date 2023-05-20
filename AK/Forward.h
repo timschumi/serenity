@@ -29,6 +29,8 @@ class DeprecatedString;
 class DeprecatedStringCodePointIterator;
 class Error;
 class FlyString;
+class FormatBuilder;
+struct FormatString;
 class GenericLexer;
 class IPv4Address;
 class JsonArray;
@@ -103,6 +105,12 @@ class FixedArray;
 template<size_t precision, typename Underlying = i32>
 class FixedPoint;
 
+template<typename T, typename = void>
+struct Formatter;
+
+template<>
+struct Formatter<FormatString>;
+
 template<typename>
 class Function;
 
@@ -168,6 +176,7 @@ using AK::ErrorOr;
 using AK::FixedArray;
 using AK::FixedPoint;
 using AK::FlyString;
+using AK::FormatString;
 using AK::Function;
 using AK::GenericLexer;
 using AK::HashMap;

@@ -27,7 +27,7 @@ class TypeErasedFormatParams;
 class FormatParser;
 class FormatBuilder;
 
-template<typename T, typename = void>
+template<typename T, typename>
 struct Formatter {
     using __no_formatter_defined = void;
 };
