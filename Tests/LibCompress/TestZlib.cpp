@@ -43,12 +43,10 @@ TEST_CASE(zlib_compress_simple)
     EXPECT(freshly_pressed.value().bytes() == compressed.span());
 }
 
-TEST_CASE(zlib_decompress_with_missing_end_bits)
+TEST_CASE(zlib_decompress_with_implicit_deflate_block_end)
 {
     // This test case has been extracted from compressed PNG data of `/res/icons/16x16/app-masterword.png`.
     // The decompression results have been confirmed using the `zlib-flate` tool.
-    // Note: It is unconfirmed whether there are actually bits missing.
-    //       However, our decompressor implementation ends up in a weird state nonetheless.
 
     Array<u8, 72> const compressed {
         0x08, 0xD7, 0x63, 0x30, 0x86, 0x00, 0x01, 0x06, 0x23, 0x25, 0x30, 0x00,

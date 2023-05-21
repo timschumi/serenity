@@ -185,7 +185,17 @@ ErrorOr<bool> DeflateDecompressor::CompressedBlock::try_read_more()
     if (m_eof == true)
         return false;
 
-    auto const symbol = TRY(m_literal_codes.read_symbol(*m_decompressor.m_input_stream));
+    auto symbol_or_error = m_literal_codes.read_symbol(*m_decompressor.m_input_stream);
+
+    // According to PuTTYs implementation of zlib, reaching end-of-file is just another indicator for the block ending.
+    // This seems to be backed up by files found in the wild, mainly PNG files (as they have clearly delimited compressed data).
+    if (symbol_or_error.is_error() && symbol_or_error.error().error_payload<StreamError>() == StreamErrorCode::NotEnoughData) {
+        m_decompressor.m_read_final_bock = true;
+        m_eof = true;
+        return false;
+    }
+
+    auto const symbol = TRY(symbol_or_error);
 
     if (symbol >= 286)
         return Error::from_string_literal("Invalid deflate literal/length symbol");
