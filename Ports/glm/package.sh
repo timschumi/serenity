@@ -12,7 +12,5 @@ configure() {
 }
 
 install() {
-    target_dir="${SERENITY_INSTALL_ROOT}/usr/local/include/"
-    run_nocd mkdir -p "${target_dir}"
-    run cp -R glm "${target_dir}"
+    run cp -R glm "${SERENITY_INSTALL_ROOT}/usr/local/include/"
 }

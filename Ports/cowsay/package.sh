@@ -17,9 +17,7 @@ build() {
 }
 
 install() {
-    run_nocd mkdir -p "${SERENITY_INSTALL_ROOT}/${bin_path}/"
     run cp cowsay "${SERENITY_INSTALL_ROOT}/${bin_path}/"
-    run_nocd mkdir -p "${SERENITY_INSTALL_ROOT}/${cow_path_prefix}/"
     run cp -r cows/ "${SERENITY_INSTALL_ROOT}/${cow_path_prefix}/"
     run_nocd ln -sf "${bin_path}/cowsay" "${SERENITY_INSTALL_ROOT}/${bin_path}/cowthink"
 }

@@ -6,6 +6,5 @@ depends=("SDL2")
 makeopts+=("CONF=release")
 
 install() {
-    run mkdir -p "${SERENITY_INSTALL_ROOT}/usr/local/bin/"
     run cp build/nesalizer "${SERENITY_INSTALL_ROOT}/usr/local/bin/"
 }

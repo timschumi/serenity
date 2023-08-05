@@ -29,7 +29,6 @@ build() {
 }
 
 install() {
-    run mkdir -p "${SERENITY_INSTALL_ROOT}/usr/local/bin"
     run cp out/gn "${SERENITY_INSTALL_ROOT}/usr/local/bin"
     run cp out/gn_unittests "${SERENITY_INSTALL_ROOT}/usr/local/bin"
 }

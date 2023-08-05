@@ -11,6 +11,5 @@ build() {
 }
 
 install() {
-    run mkdir -p "${SERENITY_INSTALL_ROOT}/usr/local/bin/"
     run cp stockfish "${SERENITY_INSTALL_ROOT}/usr/local/bin/"
 }

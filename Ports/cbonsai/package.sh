@@ -7,6 +7,5 @@ makeopts+=(CC="${CC}")
 depends=("ncurses")
 
 install() {
-    run mkdir -p "${SERENITY_INSTALL_ROOT}/usr/local/bin/"
     run cp cbonsai "${SERENITY_INSTALL_ROOT}/usr/local/bin/"
 }

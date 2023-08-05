@@ -29,8 +29,6 @@ build() {
 install() {
     zig_install_dir="${workdir}/out/zig-${SERENITY_ARCH}-serenity-none-native"
 
-    mkdir -p "${DESTDIR}/usr/local/bin/."
-    mkdir -p "${DESTDIR}/usr/local/lib/."
     cp -rv "${zig_install_dir}/bin/"* "${DESTDIR}/usr/local/bin/"
     cp -rv "${zig_install_dir}/lib/"* "${DESTDIR}/usr/local/lib/"
 }

@@ -8,7 +8,6 @@ use_fresh_config_sub=true
 configopts=("--prefix=/usr/local" "--with-pkg-config-dir=/usr/local/lib/pkgconfig")
 
 post_install() {
-    run mkdir -p "${SERENITY_INSTALL_ROOT}/bin"
     # FIXME: Same here, what is this about?!
     run ln -sf /usr/local/bin/pkgconf "${SERENITY_INSTALL_ROOT}/usr/local/bin/pkg-config"
 }
