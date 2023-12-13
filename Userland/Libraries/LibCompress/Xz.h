@@ -105,26 +105,38 @@ struct [[gnu::packed]] XzFilterBCJProperties {
 };
 static_assert(sizeof(XzFilterBCJProperties) == 4);
 
-class XzFilterBCJArm64 : public Stream {
+template<size_t InstructionAlignment, size_t InstructionSize>
+class XzFilterBCJ : public Stream {
 public:
-    static ErrorOr<NonnullOwnPtr<XzFilterBCJArm64>> create(MaybeOwned<Stream>, u32 start_offset);
-
     virtual ErrorOr<Bytes> read_some(Bytes) override;
     virtual ErrorOr<size_t> write_some(ReadonlyBytes) override;
     virtual bool is_eof() const override;
     virtual bool is_open() const override;
     virtual void close() override;
 
-private:
-    static constexpr size_t INSTRUCTION_ALIGNMENT = 4;
-    static constexpr size_t INSTRUCTION_SIZE = 4;
+protected:
+    static constexpr size_t INSTRUCTION_ALIGNMENT = InstructionAlignment;
+    static constexpr size_t INSTRUCTION_SIZE = InstructionSize;
 
-    XzFilterBCJArm64(CountingStream, u32 start_offset, CircularBuffer input_buffer, CircularBuffer output_buffer);
+    XzFilterBCJ(CountingStream, u32 start_offset, CircularBuffer input_buffer, CircularBuffer output_buffer);
+
+private:
+    virtual void filter(size_t stream_offset, Bytes buffer) = 0;
 
     CountingStream m_stream;
     u32 m_start_offset;
     CircularBuffer m_input_buffer;
     CircularBuffer m_output_buffer;
+};
+
+class XzFilterBCJArm64 : public XzFilterBCJ<4, 4> {
+public:
+    static ErrorOr<NonnullOwnPtr<XzFilterBCJArm64>> create(MaybeOwned<Stream>, u32 start_offset);
+
+private:
+    XzFilterBCJArm64(CountingStream, u32 start_offset, CircularBuffer input_buffer, CircularBuffer output_buffer);
+
+    virtual void filter(size_t stream_offset, Bytes buffer) override;
 };
 
 // 5.3.3. Delta

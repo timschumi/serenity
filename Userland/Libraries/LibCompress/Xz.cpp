@@ -221,19 +221,8 @@ void XzFilterDelta::close()
 {
 }
 
-ErrorOr<NonnullOwnPtr<XzFilterBCJArm64>> XzFilterBCJArm64::create(MaybeOwned<Stream> stream, u32 start_offset)
-{
-    if (start_offset % INSTRUCTION_ALIGNMENT != 0)
-        return Error::from_string_literal("XZ BCJ filter offset is not a multiple of the alignment");
-
-    auto counting_stream = CountingStream { move(stream) };
-    auto input_buffer = TRY(CircularBuffer::create_empty(INSTRUCTION_SIZE));
-    auto output_buffer = TRY(CircularBuffer::create_empty(INSTRUCTION_SIZE));
-    auto filter = TRY(adopt_nonnull_own_or_enomem(new (nothrow) XzFilterBCJArm64(move(counting_stream), start_offset, move(input_buffer), move(output_buffer))));
-    return filter;
-}
-
-XzFilterBCJArm64::XzFilterBCJArm64(CountingStream stream, u32 start_offset, CircularBuffer input_buffer, CircularBuffer output_buffer)
+template<size_t InstructionAlignment, size_t InstructionSize>
+XzFilterBCJ<InstructionAlignment, InstructionSize>::XzFilterBCJ(CountingStream stream, u32 start_offset, CircularBuffer input_buffer, CircularBuffer output_buffer)
     : m_stream(move(stream))
     , m_start_offset(start_offset)
     , m_input_buffer(move(input_buffer))
@@ -241,7 +230,8 @@ XzFilterBCJArm64::XzFilterBCJArm64(CountingStream stream, u32 start_offset, Circ
 {
 }
 
-ErrorOr<Bytes> XzFilterBCJArm64::read_some(Bytes bytes)
+template<size_t InstructionAlignment, size_t InstructionSize>
+ErrorOr<Bytes> XzFilterBCJ<InstructionAlignment, InstructionSize>::read_some(Bytes bytes)
 {
     if (m_output_buffer.used_space() > 0) {
         // If we still have buffered outgoing data, return that first.
@@ -265,7 +255,63 @@ ErrorOr<Bytes> XzFilterBCJArm64::read_some(Bytes bytes)
     auto buffer_span = m_input_buffer.read(buffer);
     VERIFY(buffer_span.size() == INSTRUCTION_SIZE);
 
-    if ((buffer[3] & 0b11111100) == 0b10010100) {
+    filter(stream_offset, buffer_span);
+
+    // Write what we can into the Span, put the rest into the output buffer.
+    auto size_in_span = min(INSTRUCTION_SIZE, bytes.size());
+    bytes = bytes.trim(size_in_span);
+    buffer.span().trim(size_in_span).copy_to(bytes);
+    if (size_in_span < INSTRUCTION_SIZE) {
+        auto bytes_written_to_buffer = m_output_buffer.write(buffer.span().slice(size_in_span));
+        VERIFY(bytes_written_to_buffer == INSTRUCTION_SIZE - size_in_span);
+    }
+    return bytes;
+}
+
+template<size_t InstructionAlignment, size_t InstructionSize>
+ErrorOr<size_t> XzFilterBCJ<InstructionAlignment, InstructionSize>::write_some(ReadonlyBytes)
+{
+    return EBADF;
+}
+
+template<size_t InstructionAlignment, size_t InstructionSize>
+bool XzFilterBCJ<InstructionAlignment, InstructionSize>::is_eof() const
+{
+    return m_stream.is_eof();
+}
+
+template<size_t InstructionAlignment, size_t InstructionSize>
+bool XzFilterBCJ<InstructionAlignment, InstructionSize>::is_open() const
+{
+    return m_stream.is_open();
+}
+
+template<size_t InstructionAlignment, size_t InstructionSize>
+void XzFilterBCJ<InstructionAlignment, InstructionSize>::close()
+{
+}
+
+ErrorOr<NonnullOwnPtr<XzFilterBCJArm64>> XzFilterBCJArm64::create(MaybeOwned<Stream> stream, u32 start_offset)
+{
+    if (start_offset % INSTRUCTION_ALIGNMENT != 0)
+        return Error::from_string_literal("XZ BCJ filter offset is not a multiple of the alignment");
+
+    auto counting_stream = CountingStream { move(stream) };
+    auto input_buffer = TRY(CircularBuffer::create_empty(INSTRUCTION_SIZE));
+    auto output_buffer = TRY(CircularBuffer::create_empty(INSTRUCTION_SIZE));
+    auto filter = TRY(adopt_nonnull_own_or_enomem(new (nothrow) XzFilterBCJArm64(move(counting_stream), start_offset, move(input_buffer), move(output_buffer))));
+    return filter;
+}
+
+XzFilterBCJArm64::XzFilterBCJArm64(CountingStream stream, u32 start_offset, CircularBuffer input_buffer, CircularBuffer output_buffer)
+    : XzFilterBCJ(move(stream), start_offset, move(input_buffer), move(output_buffer))
+{
+}
+
+
+void XzFilterBCJArm64::filter(size_t stream_offset, Bytes buffer)
+{
+   if ((buffer[3] & 0b11111100) == 0b10010100) {
         // The ARM64 instruction manual notes that BL is encoded as the following in a little-endian byte order:
         //   100101XX XXXXXXX XXXXXXXX XXXXXXXX
         // X is an immediate 26 bit value designating the program counter offset divided by 4.
@@ -294,49 +340,21 @@ ErrorOr<Bytes> XzFilterBCJArm64::read_some(Bytes bytes)
         // Only offsets between -512MiB and +512MiB are processed, which is suppsoed to reduce false-positives.
         // Note: The XZ reference implementation presents a human readable range, an unoptimized condition, and an optimized condition for this.
         //       Since none of the three entirely match each other, our only option is to copy the exact formula that is used in practice.
-        if (!((program_counter + 0x00020000) & 0x001C0000)) {
-            u32 program_counter_offset = program_counter - stream_offset;
+        if ((program_counter + 0x00020000) & 0x001C0000)
+            return;
 
-            // Clip the immediate to 18 bits, then sign-extend to 21 bits.
-            program_counter_offset &= (1 << 18) - 1;
-            program_counter_offset |= (0 - (program_counter_offset & (1 << 17))) & (0b111 << 18);
+        u32 program_counter_offset = program_counter - stream_offset;
 
-            // Reassemble the instruction.
-            buffer[3] = ((program_counter_offset & 0b11) << 5) | 0b10010000;
-            buffer[2] = program_counter_offset >> 13;
-            buffer[1] = program_counter_offset >> 5;
-            buffer[0] = ((program_counter_offset & 0b11100) << 3) | register_number;
-        }
+        // Clip the immediate to 18 bits, then sign-extend to 21 bits.
+        program_counter_offset &= (1 << 18) - 1;
+        program_counter_offset |= (0 - (program_counter_offset & (1 << 17))) & (0b111 << 18);
+
+        // Reassemble the instruction.
+        buffer[3] = ((program_counter_offset & 0b11) << 5) | 0b10010000;
+        buffer[2] = program_counter_offset >> 13;
+        buffer[1] = program_counter_offset >> 5;
+        buffer[0] = ((program_counter_offset & 0b11100) << 3) | register_number;
     }
-
-    // Write what we can into the Span, put the rest into the output buffer.
-    auto size_in_span = min(INSTRUCTION_SIZE, bytes.size());
-    bytes = bytes.trim(size_in_span);
-    buffer.span().trim(size_in_span).copy_to(bytes);
-    if (size_in_span < INSTRUCTION_SIZE) {
-        auto bytes_written_to_buffer = m_output_buffer.write(buffer.span().slice(size_in_span));
-        VERIFY(bytes_written_to_buffer == INSTRUCTION_SIZE - size_in_span);
-    }
-    return bytes;
-}
-
-ErrorOr<size_t> XzFilterBCJArm64::write_some(ReadonlyBytes)
-{
-    return EBADF;
-}
-
-bool XzFilterBCJArm64::is_eof() const
-{
-    return m_stream.is_eof();
-}
-
-bool XzFilterBCJArm64::is_open() const
-{
-    return m_stream.is_open();
-}
-
-void XzFilterBCJArm64::close()
-{
 }
 
 ErrorOr<NonnullOwnPtr<XzDecompressor>> XzDecompressor::create(MaybeOwned<Stream> stream)
