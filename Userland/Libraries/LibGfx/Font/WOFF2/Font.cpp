@@ -959,8 +959,8 @@ ErrorOr<NonnullRefPtr<Font>> Font::try_load_from_externally_owned_memory(Seekabl
         return Error::from_string_literal("Not enough data to read in the reported size of the compressed data");
 
     auto compressed_stream = FixedMemoryStream(compressed_bytes);
-    auto brotli_stream = Compress::BrotliDecompressionStream { MaybeOwned<Stream>(compressed_stream) };
-    auto decompressed_table_data = TRY(brotli_stream.read_until_eof());
+    auto brotli_stream = TRY(Compress::BrotliDecompressionStream::create(MaybeOwned<Stream>(compressed_stream)));
+    auto decompressed_table_data = TRY(brotli_stream->read_until_eof());
     if (decompressed_table_data.size() != total_length_of_all_tables)
         return Error::from_string_literal("Size of the decompressed data is not equal to the total of the reported lengths of each table");
 

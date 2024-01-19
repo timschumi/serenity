@@ -75,9 +75,9 @@ static ErrorOr<ByteBuffer> handle_content_encoding(ByteBuffer const& buf, ByteSt
         dbgln_if(JOB_DEBUG, "Job::handle_content_encoding: buf is brotli compressed!");
 
         FixedMemoryStream bufstream { buf };
-        auto brotli_stream = Compress::BrotliDecompressionStream { MaybeOwned<Stream>(bufstream) };
+        auto brotli_stream = TRY(Compress::BrotliDecompressionStream::create(MaybeOwned<Stream>(bufstream)));
 
-        auto uncompressed = TRY(brotli_stream.read_until_eof());
+        auto uncompressed = TRY(brotli_stream->read_until_eof());
         if constexpr (JOB_DEBUG) {
             dbgln("Job::handle_content_encoding: Brotli::decompress() successful.");
             dbgln("  Input size: {}", buf.size());

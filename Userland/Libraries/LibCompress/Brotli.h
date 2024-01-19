@@ -42,7 +42,6 @@ class BrotliDecompressionStream : public Stream {
 
 public:
     enum class State {
-        WindowSize,
         Idle,
         UncompressedData,
         CompressedCommand,
@@ -111,7 +110,7 @@ public:
     };
 
 public:
-    BrotliDecompressionStream(MaybeOwned<Stream>);
+    static ErrorOr<NonnullOwnPtr<BrotliDecompressionStream>> create(MaybeOwned<Stream>);
 
     ErrorOr<Bytes> read_some(Bytes output_buffer) override;
     ErrorOr<size_t> write_some(ReadonlyBytes bytes) override { return m_input_stream.write_some(bytes); }
@@ -120,7 +119,9 @@ public:
     void close() override { m_input_stream.close(); }
 
 private:
-    ErrorOr<size_t> read_window_length();
+    BrotliDecompressionStream(LittleEndianInputBitStream, size_t window_size, LookbackBuffer);
+
+    static ErrorOr<size_t> read_window_length(LittleEndianInputBitStream&);
     ErrorOr<size_t> read_size_number_of_nibbles();
     ErrorOr<size_t> read_variable_length();
 
@@ -133,8 +134,8 @@ private:
     size_t literal_code_index_from_context();
 
     LittleEndianInputBitStream m_input_stream;
-    State m_current_state { State::WindowSize };
-    Optional<LookbackBuffer> m_lookback_buffer;
+    State m_current_state { State::Idle };
+    LookbackBuffer m_lookback_buffer;
 
     size_t m_window_size { 0 };
     bool m_read_final_block { false };

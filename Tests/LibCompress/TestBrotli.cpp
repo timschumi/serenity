@@ -60,8 +60,8 @@ TEST_CASE(dictionary_use_after_uncompressed_block)
     MUST(stream_in.align_to_byte_boundary());
     MUST(stream_in.flush_buffer_to_stream());
 
-    auto decompressor = Compress::BrotliDecompressionStream { MaybeOwned<Stream>(*stream) };
-    auto buffer = TRY_OR_FAIL(decompressor.read_until_eof());
+    auto decompressor = TRY_OR_FAIL(Compress::BrotliDecompressionStream::create(MaybeOwned<Stream>(*stream)));
+    auto buffer = TRY_OR_FAIL(decompressor->read_until_eof());
 
     EXPECT_EQ(buffer.span(), "WHFcategories"sv.bytes());
 }
@@ -81,8 +81,8 @@ static void run_test(StringView const file_name)
     ByteString path_compressed = ByteString::formatted("{}.br", path);
 
     auto file = MUST(Core::File::open(path_compressed, Core::File::OpenMode::Read));
-    auto brotli_stream = Compress::BrotliDecompressionStream { MaybeOwned<Stream> { *file } };
-    auto data = MUST(brotli_stream.read_until_eof());
+    auto brotli_stream = MUST(Compress::BrotliDecompressionStream::create(MaybeOwned<Stream> { *file }));
+    auto data = MUST(brotli_stream->read_until_eof());
 
     EXPECT_EQ(data, cmp_data);
 }
@@ -154,14 +154,14 @@ TEST_CASE(brotli_decompress_zero_one_bin)
     ByteString path_compressed = ByteString::formatted("{}.br", path);
 
     auto file = MUST(Core::File::open(path_compressed, Core::File::OpenMode::Read));
-    auto brotli_stream = Compress::BrotliDecompressionStream { MaybeOwned<Stream> { *file } };
+    auto brotli_stream = MUST(Compress::BrotliDecompressionStream::create(MaybeOwned<Stream> { *file }));
 
     u8 buffer_raw[4096];
     Bytes buffer { buffer_raw, 4096 };
 
     size_t bytes_read = 0;
     while (true) {
-        size_t nread = MUST(brotli_stream.read_some(buffer)).size();
+        size_t nread = MUST(brotli_stream->read_some(buffer)).size();
         if (nread == 0)
             break;
 
@@ -175,5 +175,5 @@ TEST_CASE(brotli_decompress_zero_one_bin)
         bytes_read += nread;
     }
     EXPECT(bytes_read == 32 * MiB);
-    EXPECT(brotli_stream.is_eof());
+    EXPECT(brotli_stream->is_eof());
 }

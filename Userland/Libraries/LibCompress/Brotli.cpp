@@ -28,17 +28,28 @@ ErrorOr<size_t> Brotli::CanonicalCode::read_symbol(LittleEndianInputBitStream& i
     return Error::from_string_literal("no matching code found");
 }
 
-BrotliDecompressionStream::BrotliDecompressionStream(MaybeOwned<Stream> stream)
+ErrorOr<NonnullOwnPtr<BrotliDecompressionStream>> BrotliDecompressionStream::create(MaybeOwned<Stream> stream)
+{
+    auto bit_stream = LittleEndianInputBitStream { move(stream) };
+    size_t window_bits = TRY(read_window_length(bit_stream));
+    size_t window_size = (1 << window_bits) - 16;
+    auto lookback_buffer = TRY(LookbackBuffer::try_create(window_size));
+    return adopt_nonnull_own_or_enomem(new (nothrow) BrotliDecompressionStream(move(bit_stream), window_size, move(lookback_buffer)));
+}
+
+BrotliDecompressionStream::BrotliDecompressionStream(LittleEndianInputBitStream stream, size_t window_size, LookbackBuffer lookback_buffer)
     : m_input_stream(move(stream))
+    , m_lookback_buffer(move(lookback_buffer))
+    , m_window_size(window_size)
 {
 }
 
-ErrorOr<size_t> BrotliDecompressionStream::read_window_length()
+ErrorOr<size_t> BrotliDecompressionStream::read_window_length(LittleEndianInputBitStream& input_stream)
 {
-    if (TRY(m_input_stream.read_bit())) {
-        switch (TRY(m_input_stream.read_bits(3))) {
+    if (TRY(input_stream.read_bit())) {
+        switch (TRY(input_stream.read_bits(3))) {
         case 0: {
-            switch (TRY(m_input_stream.read_bits(3))) {
+            switch (TRY(input_stream.read_bits(3))) {
             case 0:
                 return 17;
             case 1:
@@ -550,16 +561,16 @@ size_t BrotliDecompressionStream::literal_code_index_from_context()
     size_t context_id;
     switch (context_mode) {
     case 0:
-        context_id = m_lookback_buffer.value().lookback(1, 0) & 0x3f;
+        context_id = m_lookback_buffer.lookback(1, 0) & 0x3f;
         break;
     case 1:
-        context_id = m_lookback_buffer.value().lookback(1, 0) >> 2;
+        context_id = m_lookback_buffer.lookback(1, 0) >> 2;
         break;
     case 2:
-        context_id = context_id_lut0[m_lookback_buffer.value().lookback(1, 0)] | context_id_lut1[m_lookback_buffer.value().lookback(2, 0)];
+        context_id = context_id_lut0[m_lookback_buffer.lookback(1, 0)] | context_id_lut1[m_lookback_buffer.lookback(2, 0)];
         break;
     case 3:
-        context_id = (context_id_lut2[m_lookback_buffer.value().lookback(1, 0)] << 3) | context_id_lut2[m_lookback_buffer.value().lookback(2, 0)];
+        context_id = (context_id_lut2[m_lookback_buffer.lookback(1, 0)] << 3) | context_id_lut2[m_lookback_buffer.lookback(2, 0)];
         break;
     default:
         VERIFY_NOT_REACHED();
@@ -573,14 +584,7 @@ ErrorOr<Bytes> BrotliDecompressionStream::read_some(Bytes output_buffer)
 {
     size_t bytes_read = 0;
     while (bytes_read < output_buffer.size()) {
-        if (m_current_state == State::WindowSize) {
-            size_t window_bits = TRY(read_window_length());
-            m_window_size = (1 << window_bits) - 16;
-
-            m_lookback_buffer = TRY(LookbackBuffer::try_create(m_window_size));
-
-            m_current_state = State::Idle;
-        } else if (m_current_state == State::Idle) {
+        if (m_current_state == State::Idle) {
             // If the final block was read, we are done decompressing
             if (m_read_final_block)
                 break;
@@ -737,7 +741,7 @@ ErrorOr<Bytes> BrotliDecompressionStream::read_some(Bytes output_buffer)
 
             // TODO: Replace the home-grown LookbackBuffer with AK::CircularBuffer.
             for (auto c : uncompressed_bytes)
-                m_lookback_buffer.value().write(c);
+                m_lookback_buffer.write(c);
 
             m_bytes_left -= uncompressed_bytes.size();
             bytes_read += uncompressed_bytes.size();
@@ -789,7 +793,7 @@ ErrorOr<Bytes> BrotliDecompressionStream::read_some(Bytes output_buffer)
             size_t literal_value = TRY(m_literal_codes[literal_code_index].read_symbol(m_input_stream));
 
             output_buffer[bytes_read] = literal_value;
-            m_lookback_buffer.value().write(literal_value);
+            m_lookback_buffer.write(literal_value);
             bytes_read++;
             m_insert_length--;
             m_bytes_left--;
@@ -883,7 +887,7 @@ ErrorOr<Bytes> BrotliDecompressionStream::read_some(Bytes output_buffer)
             }
             m_distance = distance;
 
-            size_t total_written = m_lookback_buffer.value().total_written();
+            size_t total_written = m_lookback_buffer.total_written();
             size_t max_lookback = min(total_written, m_window_size);
 
             if (distance > max_lookback) {
@@ -906,10 +910,10 @@ ErrorOr<Bytes> BrotliDecompressionStream::read_some(Bytes output_buffer)
                 m_current_state = State::CompressedCopy;
             }
         } else if (m_current_state == State::CompressedCopy) {
-            u8 copy_value = m_lookback_buffer.value().lookback(m_distance);
+            u8 copy_value = m_lookback_buffer.lookback(m_distance);
 
             output_buffer[bytes_read] = copy_value;
-            m_lookback_buffer.value().write(copy_value);
+            m_lookback_buffer.write(copy_value);
             bytes_read++;
             m_copy_length--;
             m_bytes_left--;
@@ -923,7 +927,7 @@ ErrorOr<Bytes> BrotliDecompressionStream::read_some(Bytes output_buffer)
             u8 dictionary_value = m_dictionary_data[offset];
 
             output_buffer[bytes_read] = dictionary_value;
-            m_lookback_buffer.value().write(dictionary_value);
+            m_lookback_buffer.write(dictionary_value);
             bytes_read++;
             m_copy_length--;
             m_bytes_left--;
