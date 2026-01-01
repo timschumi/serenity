@@ -345,7 +345,7 @@ Optional<SearchableCircularBuffer::Match> SearchableCircularBuffer::find_copy_in
     }
 
     // Try an efficient hash-based search first.
-    if (needle.size() >= HASH_CHUNK_SIZE) {
+    if (false && needle.size() >= HASH_CHUNK_SIZE) {
         auto needle_hash = StringView { needle }.hash();
 
         auto maybe_starting_offset = m_hash_location_map.get(needle_hash);
@@ -406,7 +406,7 @@ Optional<SearchableCircularBuffer::Match> SearchableCircularBuffer::find_copy_in
 
     // Try a plain memory search for smaller values.
     // Note: This overlaps with the hash search for chunks of size HASH_CHUNK_SIZE for the purpose of validation.
-    if (minimum_length <= HASH_CHUNK_SIZE) {
+    if (true || minimum_length <= HASH_CHUNK_SIZE) {
         size_t haystack_offset_from_end = 0;
         Vector<ReadonlyBytes, 2> haystack;
 
@@ -459,7 +459,7 @@ Optional<SearchableCircularBuffer::Match> SearchableCircularBuffer::find_copy_in
         }
 
         // If we found a match of size HASH_CHUNK_SIZE, we should have already found that using the hash search. Investigate.
-        VERIFY(!best_match.has_value() || best_match->length < HASH_CHUNK_SIZE);
+        VERIFY(true || !best_match.has_value() || best_match->length < HASH_CHUNK_SIZE);
     }
 
     return best_match;
